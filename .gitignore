@@ -1,0 +1,26 @@
+# 1. Dữ liệu và Models (Bạn đã có, tôi mở rộng thêm)
+*.mp4
+*.avi
+*.onnx
+*.pt
+*.pth
+
+# 2. Thư mục chứa dữ liệu và kết quả (Thường không push lên Git)
+data/
+output/
+
+# 3. Python Cache và file biên dịch (Rất quan trọng)
+__pycache__/
+*.py[cod]
+*$py.class
+
+# 4. Môi trường ảo (Virtual Environment)
+# Nhìn terminal bạn đang dùng env tên là (bullet). 
+# Nếu thư mục env này nằm trong project, bạn cần ignore nó.
+venv/
+.venv/
+env/
+bullet/ 
+
+# 5. Cấu hình IDE / Editor (VS Code)
+.vscode/
