@@ -19,7 +19,7 @@ class SharedDepthState:
         self.last_inference_time = 0.0
 
 def depth_worker_thread(frame_queue: queue.Queue, shared_state: SharedDepthState, depth_model: DepthEstimator):
-    print("[Depth Thread] Bắt đầu chạy...")
+    print("[Depth Thread] Started.")
     while True:
         frame = frame_queue.get()
         if frame is None:
@@ -34,18 +34,18 @@ def depth_worker_thread(frame_queue: queue.Queue, shared_state: SharedDepthState
             shared_state.last_inference_time = inference_time
 
         frame_queue.task_done()
-    print("\n[Depth Thread] Đã đóng.")
+    print("\n[Depth Thread] Closed.")
 
 def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_frames=240, skip_frames=5, n_frame_update=10):
     if not os.path.exists(video_path):
-        print(f"Lỗi: Không tìm thấy file video {video_path}")
+        print(f"Error: Video file not found {video_path}")
         return
 
     if not os.path.exists(model_path):
-        print(f"Lỗi: Không tìm thấy file mô hình {model_path}")
+        print(f"Error: Model file not found {model_path}")
         return
 
-    print("Đang khởi tạo Depth Model...")
+    print("Initializing Depth Model...")
     depth_estimator = DepthEstimator(model_path=model_path)
 
     shared_state = SharedDepthState()
@@ -70,11 +70,11 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
 
     prev_frame_resized = cv2.resize(prev_frame, (target_width, target_height))
 
-    print("Đang tính toán Depth cho frame đầu tiên...")
+    print("Computing Depth for first frame...")
     t0_depth = time.time()
     initial_depth = depth_estimator.predict(prev_frame_resized)
     first_depth_time = time.time() - t0_depth
-    print(f"Hoàn thành tính toán Depth frame đầu tiên trong: {first_depth_time:.3f}s")
+    print(f"First frame depth computed in: {first_depth_time:.3f}s")
 
     with shared_state.lock:
         shared_state.depth_map = initial_depth
@@ -90,7 +90,7 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
     chunk_speeds = []
     display_speed = 0.0
 
-    print(f"Bắt đầu xử lý luồng chính... (Skip frames: {skip_frames}, Update every {n_frame_update} frames)")
+    print(f"Starting main loop... (Skip frames: {skip_frames}, Update every {n_frame_update} frames)")
 
     while True:
         if max_frames and frame_idx > max_frames: break
@@ -157,7 +157,7 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
         t_total_frame = time.time() - t_loop_start
         all_frame_times.append(t_total_frame)
 
-        # Ghi nhận các mốc thời gian telemetry
+        # Record telemetry timestamps
         telemetry_records.append({
             'frame_idx': frame_idx,
             't_frame_io': t_frame_io,
@@ -183,11 +183,11 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
     frame_queue.put(None)
     depth_thread.join()
 
-    print(f"\n\nHoàn tất! Video lưu tại: {out_video_path}")
+    print(f"\n\nComplete! Video saved to: {out_video_path}")
     avg_fps = 1.0 / np.mean(all_frame_times)
-    print(f"Tốc độ xử lý trung bình: {avg_fps:.1f} FPS")
+    print(f"Average processing speed: {avg_fps:.1f} FPS")
 
-    # Lưu dữ liệu telemetry
+    # Save telemetry data
     telemetry_csv_path = out_video_path.replace('.mp4', '_telemetry.csv')
     try:
         telemetry_csv_path = os.path.abspath(telemetry_csv_path)
@@ -196,13 +196,13 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
                 writer = csv.DictWriter(f, fieldnames=telemetry_records[0].keys())
                 writer.writeheader()
                 writer.writerows(telemetry_records)
-        print(f"Đã lưu dữ liệu telemetry tại: {telemetry_csv_path}")
+        print(f"Telemetry data saved to: {telemetry_csv_path}")
 
-        # Gọi phân tích để vẽ biểu đồ và hiển thị thống kê
+        # Analyze and plot telemetry data
         telemetry_plot_path = out_video_path.replace('.mp4', '_telemetry_plot.png')
         analyze_telemetry_csv(telemetry_csv_path, telemetry_plot_path)
     except Exception as e:
-        print(f"Lỗi khi lưu/phân tích telemetry: {e}")
+        print(f"Error saving/analyzing telemetry: {e}")
 
     if history_v:
         history_v_np = np.array(history_v)
@@ -210,8 +210,8 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
         mae = np.mean(np.abs(history_v_np - history_gt_np))
         rmse = np.sqrt(np.mean((history_v_np - history_gt_np)**2))
 
-        print(f"--- KẾT QUẢ KIỂM TRA (Tính trên các mốc cập nhật) ---")
-        print(f"Tổng số lần cập nhật: {len(history_v)}")
+        print(f"--- VALIDATION RESULTS (computed on update intervals) ---")
+        print(f"Total updates: {len(history_v)}")
         print(f"Average MAE: {mae:.4f} m/s")
         print(f"Average RMSE: {rmse:.4f} m/s")
 
@@ -228,5 +228,5 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
         
         plot_path = out_video_path.replace('.mp4', '_plot.png')
         plt.savefig(plot_path)
-        print(f"Đã lưu biểu đồ tại: {plot_path}")
+        print(f"Plot saved to: {plot_path}")
         plt.close()
