@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import math
 import torch
+import time
 from torchvision.models.optical_flow import raft_small, Raft_Small_Weights
 
 class ConveyorKalmanFilter:
@@ -41,6 +42,14 @@ class RAFTSpeedEngine:
         self.model = raft_small(weights=weights, progress=False).to(self.device)
         self.model.eval()
         self.transforms = weights.transforms()
+        self.last_timings = {
+            'preprocess': 0.0,
+            'raft_inference': 0.0,
+            'flow_grid': 0.0,
+            '3d_projection': 0.0,
+            'speed_filter': 0.0,
+            'total': 0.0
+        }
 
     def get_3d_point(self, u, v, depth_map):
         y, x = int(v), int(u)
@@ -70,14 +79,21 @@ class RAFTSpeedEngine:
         return x_min, x_max, y_min, y_max
 
     def measure_speed(self, prev_frame, curr_frame, depth_map_curr, grid_size=(20, 20)):
+        t_start = time.time()
+        
+        t0 = time.time()
         img1_batch = self.preprocess_image(prev_frame)
         img2_batch = self.preprocess_image(curr_frame)
         img1_batch, img2_batch = self.transforms(img1_batch, img2_batch)
+        t_preprocess = time.time() - t0
 
+        t0 = time.time()
         with torch.no_grad():
             list_of_flows = self.model(img1_batch, img2_batch)
             predicted_flow = list_of_flows[-1][0]
+        t_raft_inference = time.time() - t0
 
+        t0 = time.time()
         u_flow = predicted_flow[0].cpu().numpy()
         v_flow = predicted_flow[1].cpu().numpy()
         h, w = u_flow.shape
@@ -102,8 +118,18 @@ class RAFTSpeedEngine:
         pts_v_old = pts_v_old[valid_bounds]
         pts_u_new = pts_u_new[valid_bounds].astype(int)
         pts_v_new = pts_v_new[valid_bounds].astype(int)
+        t_flow_grid = time.time() - t0
 
+        t0 = time.time()
         if len(pts_u_old) == 0:
+            self.last_timings = {
+                'preprocess': t_preprocess,
+                'raft_inference': t_raft_inference,
+                'flow_grid': t_flow_grid,
+                '3d_projection': 0.0,
+                'speed_filter': 0.0,
+                'total': time.time() - t_start
+            }
             return 0.0, 0.0, u_flow, v_flow
 
         Z_old = depth_map_curr[pts_v_old, pts_u_old]
@@ -115,6 +141,14 @@ class RAFTSpeedEngine:
         Z_old, Z_new = Z_old[valid_depth], Z_new[valid_depth]
 
         if len(Z_old) < 5:
+            self.last_timings = {
+                'preprocess': t_preprocess,
+                'raft_inference': t_raft_inference,
+                'flow_grid': t_flow_grid,
+                '3d_projection': time.time() - t0,
+                'speed_filter': 0.0,
+                'total': time.time() - t_start
+            }
             return 0.0, 0.0, u_flow, v_flow
 
         X3D_old = (pts_u_old - self.cx) * Z_old / self.fx
@@ -125,7 +159,9 @@ class RAFTSpeedEngine:
 
         dist_3d = np.sqrt((X3D_new - X3D_old)**2 + (Y3D_new - Y3D_old)**2 + (Z_new - Z_old)**2)
         speeds = dist_3d * self.fps
+        t_3d_projection = time.time() - t0
 
+        t0 = time.time()
         Q1 = np.percentile(speeds, 25)
         Q3 = np.percentile(speeds, 75)
         IQR = Q3 - Q1
@@ -135,9 +171,27 @@ class RAFTSpeedEngine:
         valid_speeds = speeds[(speeds >= lower_bound) & (speeds <= upper_bound)]
 
         if len(valid_speeds) == 0:
+            self.last_timings = {
+                'preprocess': t_preprocess,
+                'raft_inference': t_raft_inference,
+                'flow_grid': t_flow_grid,
+                '3d_projection': t_3d_projection,
+                'speed_filter': time.time() - t0,
+                'total': time.time() - t_start
+            }
             return 0.0, 0.0, u_flow, v_flow
 
         final_speed = np.median(valid_speeds)
         confidence = len(valid_speeds) / (grid_size[0] * grid_size[1])
+        t_speed_filter = time.time() - t0
+
+        self.last_timings = {
+            'preprocess': t_preprocess,
+            'raft_inference': t_raft_inference,
+            'flow_grid': t_flow_grid,
+            '3d_projection': t_3d_projection,
+            'speed_filter': t_speed_filter,
+            'total': time.time() - t_start
+        }
 
         return final_speed, confidence, u_flow, v_flow
