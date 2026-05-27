@@ -6,7 +6,7 @@ from typing import Union
 class DepthEstimator:
     def __init__(self, model_path: str, providers: list = None):
         """
-        Khởi tạo mô hình ước lượng độ sâu.
+        Initialize depth estimation model.
         """
         if providers is None:
             providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
@@ -17,7 +17,7 @@ class DepthEstimator:
         if isinstance(image, str):
             original_img = cv2.imread(image)
             if original_img is None:
-                raise ValueError(f"Không thể đọc ảnh từ: {image}")
+                raise ValueError(f"Cannot read image from: {image}")
         else:
             original_img = image
 
