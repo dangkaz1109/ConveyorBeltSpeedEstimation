@@ -6,21 +6,21 @@ import matplotlib.pyplot as plt
 
 def analyze_telemetry_csv(csv_path, output_plot_path=None):
     """
-    Đọc dữ liệu telemetry CSV, tính toán thống kê và vẽ biểu đồ phân tích hiệu năng.
+    Read telemetry CSV data, calculate statistics, and plot performance analysis charts.
     """
     if not os.path.exists(csv_path):
-        print(f"Lỗi: Không tìm thấy file CSV tại {csv_path}")
+        print(f"Error: CSV file not found at {csv_path}")
         return
 
-    # TODO(security): Validate and sanitize paths
+    # Validate and sanitize paths
     csv_path = os.path.abspath(csv_path)
     if output_plot_path:
         output_plot_path = os.path.abspath(output_plot_path)
 
-    # Đọc dữ liệu
+    # Read data
     df = pd.read_csv(csv_path)
     
-    # Định nghĩa các thành phần tham gia vào chu kỳ chính (blocking components)
+    # Define blocking components in main loop
     blocking_cols = {
         't_frame_io': 'Frame IO/Resize',
         't_depth_copy': 'Depth Lock & Copy',
@@ -29,7 +29,7 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
         't_vis_io': 'Vis Overlay & Video Write'
     }
     
-    # Định nghĩa các thành phần con của Speed Engine
+    # Define Speed Engine subcomponents
     speed_engine_cols = {
         't_speed_preprocess': 'Preprocess Image',
         't_speed_raft_inference': 'RAFT Flow Inference',
@@ -38,31 +38,31 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
         't_speed_filter': 'Speed IQR Filter'
     }
 
-    # Báo cáo thống kê
+    # Print statistics report
     print("\n" + "="*70)
-    print(" BÁO CÁO THỐNG KÊ HIỆU NĂNG TÍNH TOÁN (Đơn vị: ms)")
+    print(" PERFORMANCE STATISTICS REPORT (Unit: ms)")
     print("="*70)
     
     total_avg_time = df['t_total_frame'].mean() * 1000.0
-    print(f"Tổng thời gian xử lý trung bình mỗi frame: {total_avg_time:.2f} ms ({1000.0/total_avg_time:.1f} FPS)")
+    print(f"Average frame processing time: {total_avg_time:.2f} ms ({1000.0/total_avg_time:.1f} FPS)")
     print("-"*70)
-    print(f"{'Thành phần':<30} | {'Trung bình':<10} | {'Độ lệch':<8} | {'Min':<8} | {'Max':<8} | {'Tỷ lệ %':<8}")
+    print(f"{'Component':<30} | {'Mean':<10} | {'Std':<8} | {'Min':<8} | {'Max':<8} | {'%':<8}")
     print("-"*70)
     
-    # In thống kê cho Pipeline Components (Blocking)
+    # Print blocking components statistics
     for col, name in blocking_cols.items():
         if col in df.columns:
             vals = df[col] * 1000.0
             pct = (vals.mean() / total_avg_time) * 100
             print(f"{name:<30} | {vals.mean():8.2f} | {vals.std():8.2f} | {vals.min():8.2f} | {vals.max():8.2f} | {pct:6.1f}%")
             
-    # Thêm thông tin Depth Inference không đồng bộ (Async Thread)
+    # Add async depth inference info
     if 't_depth_inference' in df.columns:
         vals = df['t_depth_inference'] * 1000.0
         print(f"{'Depth Model Inference (Async)':<30} | {vals.mean():8.2f} | {vals.std():8.2f} | {vals.min():8.2f} | {vals.max():8.2f} | (N/A Thread)")
         
     print("-"*70)
-    print("Thành phần con của Speed Engine:")
+    print("Speed Engine subcomponents:")
     if 't_speed_total' in df.columns:
         speed_engine_total_mean = df['t_speed_total'].mean() * 1000.0
         for col, name in speed_engine_cols.items():
@@ -73,37 +73,36 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
                 print(f" - {name:<27} | {vals.mean():8.2f} | {vals.std():8.2f} | {vals.min():8.2f} | {vals.max():8.2f} | {pct_of_total:5.1f}% ({pct_of_engine:.1f}% engine)")
     print("="*70 + "\n")
 
-    # Vẽ biểu đồ sử dụng matplotlib
+    # Plot charts using matplotlib
     plt.rcParams['font.sans-serif'] = 'DejaVu Sans'
     plt.rcParams['font.family'] = 'sans-serif'
     
     fig, axs = plt.subplots(2, 2, figsize=(16, 12))
-    fig.suptitle(f"PHÂN TÍCH HIỆU NĂNG TÍNH TOÁN (Conveyor Belt Speed Estimation)\nFile: {os.path.basename(csv_path)}", fontsize=16, fontweight='bold')
+    fig.suptitle(f"PERFORMANCE ANALYSIS (Conveyor Belt Speed Estimation)\nFile: {os.path.basename(csv_path)}", fontsize=16, fontweight='bold')
 
     frames = df['frame_idx']
 
-    # 1. Stacked Area Chart cho Pipeline (các bước block vòng lặp chính)
+    # 1. Stacked area chart for pipeline components
     pipeline_data = {}
     for col, name in blocking_cols.items():
         if col in df.columns:
             pipeline_data[name] = df[col] * 1000.0  # ms
 
-    # Tính toán phần dư (Overhead)
+    # Calculate overhead
     sum_measured = np.sum([pipeline_data[name] for name in pipeline_data], axis=0)
     overhead = (df['t_total_frame'] * 1000.0) - sum_measured
-    # Tránh giá trị âm do sai lệch phép đo thời gian siêu nhỏ
     overhead = np.clip(overhead, 0, None)
     pipeline_data['Overhead / Sync'] = overhead
 
     axs[0, 0].stackplot(frames, pipeline_data.values(), labels=pipeline_data.keys(), alpha=0.85)
     axs[0, 0].plot(frames, df['t_total_frame'] * 1000.0, color='black', linestyle='--', linewidth=1.5, label='Total Frame Time')
-    axs[0, 0].set_title("Biến thiên thời gian xử lý Pipeline qua các frame (ms)", fontsize=12, fontweight='bold')
-    axs[0, 0].set_xlabel("Chỉ số Frame", fontsize=10)
-    axs[0, 0].set_ylabel("Thời gian (ms)", fontsize=10)
+    axs[0, 0].set_title("Pipeline processing time per frame (ms)", fontsize=12, fontweight='bold')
+    axs[0, 0].set_xlabel("Frame index", fontsize=10)
+    axs[0, 0].set_ylabel("Time (ms)", fontsize=10)
     axs[0, 0].legend(loc='upper left')
     axs[0, 0].grid(True, alpha=0.3)
 
-    # 2. Stacked Area Chart cho Speed Engine (Các thành phần con)
+    # 2. Stacked area chart for Speed Engine
     speed_engine_data = {}
     for col, name in speed_engine_cols.items():
         if col in df.columns:
@@ -113,32 +112,31 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
         axs[0, 1].stackplot(frames, speed_engine_data.values(), labels=speed_engine_data.keys(), alpha=0.85)
         if 't_speed_total' in df.columns:
             axs[0, 1].plot(frames, df['t_speed_total'] * 1000.0, color='darkred', linestyle='--', linewidth=1.5, label='Total Speed Engine')
-        axs[0, 1].set_title("Biến thiên thời gian xử lý của Speed Engine (ms)", fontsize=12, fontweight='bold')
-        axs[0, 1].set_xlabel("Chỉ số Frame", fontsize=10)
-        axs[0, 1].set_ylabel("Thời gian (ms)", fontsize=10)
+        axs[0, 1].set_title("Speed Engine processing time (ms)", fontsize=12, fontweight='bold')
+        axs[0, 1].set_xlabel("Frame index", fontsize=10)
+        axs[0, 1].set_ylabel("Time (ms)", fontsize=10)
         axs[0, 1].legend(loc='upper left')
         axs[0, 1].grid(True, alpha=0.3)
 
-    # 3. Bar Chart so sánh thời gian trung bình từng thành phần (bao gồm cả Depth Inference Async)
+    # 3. Bar chart comparing average times of components
     labels = []
     means = []
     stds = []
     
-    # Các thành phần chặn
+    # Blocking components
     for col, name in blocking_cols.items():
         if col in df.columns:
             labels.append(name)
             means.append(df[col].mean() * 1000.0)
             stds.append(df[col].std() * 1000.0)
             
-    # Thêm Depth Async
+    # Add async depth
     if 't_depth_inference' in df.columns:
         labels.append('Depth Model Inference (Async)')
         means.append(df['t_depth_inference'].mean() * 1000.0)
         stds.append(df['t_depth_inference'].std() * 1000.0)
         
     y_pos = np.arange(len(labels))
-    # Sử dụng các màu khác nhau cho thành phần đồng bộ và không đồng bộ
     colors = ['teal'] * len(blocking_cols)
     if 't_depth_inference' in df.columns:
         colors.append('orange')
@@ -147,11 +145,11 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
     axs[1, 0].set_yticks(y_pos)
     axs[1, 0].set_yticklabels(labels)
     axs[1, 0].invert_yaxis()
-    axs[1, 0].set_xlabel('Thời gian trung bình (ms)', fontsize=10)
-    axs[1, 0].set_title('Thời gian trung bình các thành phần (Với độ lệch chuẩn)', fontsize=12, fontweight='bold')
+    axs[1, 0].set_xlabel('Average time (ms)', fontsize=10)
+    axs[1, 0].set_title('Component average times (with standard deviation)', fontsize=12, fontweight='bold')
     axs[1, 0].grid(True, alpha=0.3, axis='x')
 
-    # 4. Pie Chart cho phân bổ thời gian của luồng chính (Blocking loop)
+    # 4. Pie chart for main loop time allocation
     pie_means = []
     pie_labels = []
     for name, series in pipeline_data.items():
@@ -160,13 +158,13 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
         
     colors_pie = plt.cm.Set3(np.linspace(0, 1, len(pie_labels)))
     axs[1, 1].pie(pie_means, labels=pie_labels, autopct='%1.1f%%', startangle=140, colors=colors_pie, textprops={'fontsize': 9})
-    axs[1, 1].set_title('Tỷ lệ phân bổ thời gian tính toán của Vòng lặp chính', fontsize=12, fontweight='bold')
+    axs[1, 1].set_title('Main loop time allocation ratio', fontsize=12, fontweight='bold')
 
     plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     
     if output_plot_path:
         plt.savefig(output_plot_path, dpi=150)
-        print(f"Đã lưu biểu đồ phân tích telemetry tại: {output_plot_path}")
+        print(f"Telemetry analysis chart saved to: {output_plot_path}")
         
     plt.close(fig)
     return {
@@ -175,15 +173,15 @@ def analyze_telemetry_csv(csv_path, output_plot_path=None):
     }
 
 if __name__ == '__main__':
-    parser = argparse.ArgumentParser(description="Phân tích telemetry latency của conveyor belt speed estimation.")
-    parser.add_argument("--csv", type=str, default=None, help="Đường dẫn đến file CSV chứa dữ liệu telemetry")
-    parser.add_argument("--output", type=str, default=None, help="Đường dẫn lưu biểu đồ kết quả (mặc định sẽ thay thế .csv thành _latency.png)")
+    parser = argparse.ArgumentParser(description="Analyze conveyor belt speed estimation telemetry latency.")
+    parser.add_argument("--csv", type=str, default=None, help="Path to CSV file with telemetry data")
+    parser.add_argument("--output", type=str, default=None, help="Path to save output chart (default: replace .csv with _latency.png)")
     
     args = parser.parse_args()
     
     csv_file = args.csv
     if csv_file is None:
-        # Tự động tìm kiếm file telemetry.csv mới nhất trong thư mục output hoặc thư mục hiện tại
+        # Auto-find latest telemetry.csv in output or current directory
         search_dirs = ['output', '.']
         found_files = []
         for d in search_dirs:
@@ -193,13 +191,13 @@ if __name__ == '__main__':
                         found_files.append(os.path.join(d, f))
         
         if found_files:
-            # Sắp xếp theo thời gian sửa đổi mới nhất
+            # Sort by modification time, newest first
             found_files.sort(key=lambda x: os.path.getmtime(x), reverse=True)
             csv_file = found_files[0]
-            print(f"Không chỉ định --csv. Tự động sử dụng file telemetry mới nhất: {csv_file}")
+            print(f"--csv not specified. Auto-using latest telemetry file: {csv_file}")
         else:
-            print("Lỗi: Không tìm thấy file telemetry CSV mặc định (*_telemetry.csv) trong thư mục 'output/' hoặc thư mục hiện tại.")
-            print("Vui lòng chạy 'python main.py' để sinh dữ liệu hoặc chỉ định đường dẫn với tham số --csv <path>")
+            print("Error: No telemetry CSV files found (*_telemetry.csv) in 'output/' or current directory.")
+            print("Run 'python main.py' to generate data or specify path with --csv <path>")
             exit(1)
             
     output_plot = args.output
