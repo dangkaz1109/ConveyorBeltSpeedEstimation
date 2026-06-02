@@ -9,7 +9,7 @@ def main():
     parser.add_argument("--output", type=str, default="output/debug_output_raft_3.mp4", help="Đường dẫn lưu video kết quả")
     parser.add_argument("--gt-speed", type=float, default=2.5, help="Tốc độ Ground Truth (m/s) để so sánh")
     parser.add_argument("--max-frames", type=int, default=1249, help="Số frame tối đa cần xử lý")
-    parser.add_argument("--skip-frames", type=int, default=5, help="Khoảng cách frames để update luồng depth")
+    parser.add_argument("--skip-frames", type=int, default=70, help="Khoảng cách frames để update luồng depth")
     parser.add_argument("--n-update", type=int, default=15, help="Chu kỳ update tốc độ (tính theo frame)")
 
     args = parser.parse_args()

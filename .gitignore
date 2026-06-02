@@ -7,7 +7,7 @@
 
 # 2. Thư mục chứa dữ liệu và kết quả (Thường không push lên Git)
 data/
-output/
+
 
 # 3. Python Cache và file biên dịch (Rất quan trọng)
 __pycache__/

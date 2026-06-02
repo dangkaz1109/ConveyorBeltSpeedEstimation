@@ -165,8 +165,8 @@ class RAFTSpeedEngine:
         Q1 = np.percentile(speeds, 25)
         Q3 = np.percentile(speeds, 75)
         IQR = Q3 - Q1
-        lower_bound = max(0, Q1 - 1.5 * IQR)
-        upper_bound = min(10.0, Q3 + 1.5 * IQR)
+        lower_bound = max(0, Q1 - 2.0 * IQR)
+        upper_bound = min(10.0, Q3 + 2.0 * IQR)
 
         valid_speeds = speeds[(speeds >= lower_bound) & (speeds <= upper_bound)]
 
