@@ -1,9 +1,8 @@
 import cv2
 import numpy as np
 import math
-import torch
 import time
-from torchvision.models.optical_flow import raft_small, Raft_Small_Weights
+import onnxruntime as ort
 
 class ConveyorKalmanFilter:
     def __init__(self, fps=30.0):
@@ -29,7 +28,7 @@ class ConveyorKalmanFilter:
         self.kf.statePost = np.array([[np.float32(hold_speed)], [0.0]], np.float32)
 
 class RAFTSpeedEngine:
-    def __init__(self, fps=30.0, w_img=640, h_img=480):
+    def __init__(self, model_path, fps=30.0, w_img=640, h_img=480):
         self.fps = fps
         self.FOV, self.H_IMG, self.W_IMG = 95, h_img, w_img
         self.fx = (self.H_IMG / 2.0) / math.tan(math.radians(self.FOV / 2.0))
@@ -37,11 +36,11 @@ class RAFTSpeedEngine:
         self.cx, self.cy = self.W_IMG / 2.0, self.H_IMG / 2.0
         self.kinematic_kf = ConveyorKalmanFilter(fps=fps)
 
-        self.device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        weights = Raft_Small_Weights.DEFAULT
-        self.model = raft_small(weights=weights, progress=False).to(self.device)
-        self.model.eval()
-        self.transforms = weights.transforms()
+        providers = ['CUDAExecutionProvider', 'CPUExecutionProvider']
+        self.session = ort.InferenceSession(model_path, providers=providers)
+        self.input_name_1 = self.session.get_inputs()[0].name
+        self.input_name_2 = self.session.get_inputs()[1].name
+        
         self.last_timings = {
             'preprocess': 0.0,
             'raft_inference': 0.0,
@@ -51,25 +50,12 @@ class RAFTSpeedEngine:
             'total': 0.0
         }
 
-    def get_3d_point(self, u, v, depth_map):
-        y, x = int(v), int(u)
-        h, w = depth_map.shape
-        y = max(0, min(h-1, y))
-        x = max(0, min(w-1, x))
-        y1, y2 = max(0, y-2), min(h, y+3)
-        x1, x2 = max(0, x-2), min(w, x+3)
-        region_depth = depth_map[y1:y2, x1:x2]
-        valid_depths = region_depth[(region_depth > 0.1) & (region_depth < 10.0)]
-        if len(valid_depths) == 0: return None
-        Z = np.median(valid_depths)
-        X = (u - self.cx) * Z / self.fx
-        Y = (v - self.cy) * Z / self.fy
-        return np.array([X, Y, Z])
-
     def preprocess_image(self, img):
         img_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
-        tensor = torch.from_numpy(img_rgb).permute(2, 0, 1).float().unsqueeze(0)
-        return tensor.to(self.device)
+        img_normalized = (img_rgb.astype(np.float32) / 255.0) * 2.0 - 1.0
+        tensor = np.transpose(img_normalized, (2, 0, 1))
+        tensor = np.expand_dims(tensor, axis=0)
+        return tensor
 
     def _get_roi_bounds(self, h, w):
         x_min = int(w * 0.20)
@@ -84,18 +70,19 @@ class RAFTSpeedEngine:
         t0 = time.time()
         img1_batch = self.preprocess_image(prev_frame)
         img2_batch = self.preprocess_image(curr_frame)
-        img1_batch, img2_batch = self.transforms(img1_batch, img2_batch)
         t_preprocess = time.time() - t0
 
         t0 = time.time()
-        with torch.no_grad():
-            list_of_flows = self.model(img1_batch, img2_batch)
-            predicted_flow = list_of_flows[-1][0]
+        outputs = self.session.run(None, {
+            self.input_name_1: img1_batch,
+            self.input_name_2: img2_batch
+        })
+        predicted_flow = outputs[-1][0]
         t_raft_inference = time.time() - t0
 
         t0 = time.time()
-        u_flow = predicted_flow[0].cpu().numpy()
-        v_flow = predicted_flow[1].cpu().numpy()
+        u_flow = predicted_flow[0]
+        v_flow = predicted_flow[1]
         h, w = u_flow.shape
 
         x_min, x_max, y_min, y_max = self._get_roi_bounds(h, w)
@@ -162,6 +149,25 @@ class RAFTSpeedEngine:
         t_3d_projection = time.time() - t0
 
         t0 = time.time()
+        # Compute flow magnitude for each point to filter background noise
+        flow_mags = np.sqrt(u_flow[pts_v_old, pts_u_old]**2 + v_flow[pts_v_old, pts_u_old]**2)
+        motion_threshold = 1.0  # pixels
+        moving_mask = flow_mags > motion_threshold
+        
+        if np.sum(moving_mask) >= 5:
+            speeds = speeds[moving_mask]
+            flow_mags = flow_mags[moving_mask]
+        else:
+            self.last_timings = {
+                'preprocess': t_preprocess,
+                'raft_inference': t_raft_inference,
+                'flow_grid': t_flow_grid,
+                '3d_projection': t_3d_projection,
+                'speed_filter': time.time() - t0,
+                'total': time.time() - t_start
+            }
+            return 0.0, 0.0, u_flow, v_flow
+
         Q1 = np.percentile(speeds, 25)
         Q3 = np.percentile(speeds, 75)
         IQR = Q3 - Q1
@@ -181,8 +187,8 @@ class RAFTSpeedEngine:
             }
             return 0.0, 0.0, u_flow, v_flow
 
-        final_speed = np.median(valid_speeds)
-        confidence = len(valid_speeds) / (grid_size[0] * grid_size[1])
+        final_speed = float(np.median(valid_speeds))
+        confidence = float(len(valid_speeds) / (grid_size[0] * grid_size[1]))
         t_speed_filter = time.time() - t0
 
         self.last_timings = {

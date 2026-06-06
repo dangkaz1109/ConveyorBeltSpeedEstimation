@@ -86,7 +86,7 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
         shared_state.depth_frame_idx = 0
 
     out_video = cv2.VideoWriter(out_video_path, cv2.VideoWriter_fourcc(*'mp4v'), fps_video, (target_width, target_height))
-    engine = RAFTSpeedEngine(fps=fps_video, w_img=target_width, h_img=target_height)
+    engine = RAFTSpeedEngine(fps=fps_video, model_path = "models/raft_small.onnx", w_img=target_width, h_img=target_height)
 
     all_frame_times = []
     telemetry_records = []
@@ -382,12 +382,6 @@ def run_3d_pipeline(video_path, model_path, out_video_path, gt_speed=2.5, max_fr
 
         plt.tight_layout()
         plot_path = out_video_path.replace('.mp4', '_plot.png')
-<<<<<<< HEAD
-        plt.savefig(plot_path)
+        plt.savefig(plot_path, dpi=150)
         print(f"Plot saved to: {plot_path}")
         plt.close()
-=======
-        plt.savefig(plot_path, dpi=150)
-        print(f"Đã lưu biểu đồ tại: {plot_path}")
-        plt.close()
->>>>>>> 8750562 (Done)
