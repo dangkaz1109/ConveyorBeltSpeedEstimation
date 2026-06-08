@@ -42,6 +42,11 @@ Before running the pipeline, please download the necessary data and model files:
    - Place it inside the `models/` folder.
 
 ## 💻 Usage
+First, run:
+```bash
+python raft_onnx_convert.py
+```
+Then, move the raft_small.onnx file to the 'models' folder 
 
 To run the pipeline with the default configuration, simply execute:
 
