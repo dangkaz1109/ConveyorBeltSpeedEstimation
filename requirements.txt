@@ -5,3 +5,4 @@ matplotlib
 onnxruntime-gpu  # Đổi thành onnxruntime nếu chỉ chạy CPU
 torch
 torchvision
+onnx
